@@ -1,0 +1,155 @@
+# ##############################################################################
+#
+# Make one pass of the Join Order Benchmark over a PostgreSQL instance.
+# Use 5 minutes time limit to break a query if it can't be executed in
+# a reasonable time.
+# We create folder and it to being named as mode of aqo to have been run early.
+# Every folder consists file to have been named number of iteration.
+# File saves extraction information about planing time, query hash,
+# execution time about query to have been exected.
+#
+# Extraction of a value of execution time:
+# sed -n 's/.*"Execution Time": \([0-9]*\.[0-9]*\).*/\1/p'
+# Extraction of a value of planning Time:
+# sed -n 's/"Planning Time": \([0-9]*\.[0-9]*\).*/\1/p')
+# Extraction of a value of query hash:
+# sed -n 's/"Query hash": \([0-9]*\),*/\1/p')
+# here:
+# -n (with ending symbol /p) - print the only lines where template was matched.
+# '.*' - sequence of any symbols.
+# '[0-9]*\.[0-9]*' - template of floating point value.
+# '\(' and '\)' - boundaries of a value of variable '\1'.
+# use 'echo -e' to include \t symbol as tabulation in a string.
+#
+# Additional PG preferences:
+#	fsync = off
+#
+# ##############################################################################
+
+#!/bin/bash
+ulimit -c unlimited
+
+# Binaries and data dirs
+INSTDIR=`pwd`/tmp_install
+QUERY_DIR=parameterized-jo-bench/queries
+
+export LD_LIBRARY_PATH=$INSTDIR/lib:$LD_LIBRARY_PATH
+export PATH=$INSTDIR/bin:$PATH
+export PGDATA=/home/alena/postgres_data
+
+pg_ctl -w -D $PGDATA -l logfile.log restart
+
+filenum=1
+
+# Set parameters
+tmp_install/bin/psql -c "ALTER SYSTEM SET max_parallel_workers_per_gather = 0" # Just stabilize results
+tmp_install/bin/psql -c "ALTER SYSTEM SET log_statement = 'none'"
+tmp_install/bin/psql -c "ALTER SYSTEM SET from_collapse_limit = 20"
+tmp_install/bin/psql -c "ALTER SYSTEM SET join_collapse_limit = 20"
+tmp_install/bin/psql -c "SELECT pg_reload_conf();"
+tmp_install/bin/psql -c "VACUUM ANALYZE" # Be firmly confident about a table statistics
+tmp_install/bin/psql -c "ALTER SYSTEM SET aqo.show_details = 'on'"
+tmp_install/bin/psql -c "ALTER SYSTEM SET aqo.force_collect_stat = 'on'"
+tmp_install/bin/psql -c "ALTER SYSTEM SET statement_timeout = 300000" # Five minutes limit per query
+tmp_install/bin/psql -c "ALTER SYSTEM SET aqo.show_hash = 'on'"
+tmp_install/bin/psql -c "CREATE EXTENSION AQO"
+tmp_install/bin/psql -c "ALTER SYSTEM SET shared_buffers = '1000MB'"
+
+tmp_install/bin/pg_ctl -D /home/alena/postgres_data restart
+
+# delete folders learn, control, disabled to being cleaned
+rm -r learn_folder
+mkdir learn_folder
+rm -r disabled_folder
+mkdir disabled_folder
+
+rm -r control_folder
+mkdir control_folder
+
+# the first running with disabled mode
+tmp_install/bin/psql -c "ALTER SYSTEM SET aqo.mode='disabled'"
+# setup learn aqo, use aqo, auto_tuning with false value
+tmp_install/bin/psql -c tmp_install/bin/psql -c "select aqo_queries_update(queryid, fs, false, false, false) from aqo_queries"
+tmp_install/bin/pg_ctl -D /home/alena/postgres_data restart
+
+echo "The Join Order Benchmark 1Pass test with disabled mode..."
+   for (( i=0; i<15; i++ ))
+   do
+   file_name="disabled_folder/${i}_job_onepass_result_disabled.csv"
+   echo -e "Query Number,Query Name,Execution Time,Query hash,+,Plan time" > "${file_name}"
+   for file in $QUERY_DIR/*.sql
+   do
+      # Get filename
+      short_file=$(basename "$file")
+      echo -n "EXPLAIN (ANALYZE, FORMAT JSON) " > test.sql
+      cat $file >> test.sql
+      exec_query=$(tmp_install/bin/psql -f test.sql)
+      exec_time=$(echo -e "$exec_query" | sed -n 's/"Execution Time": \([0-9]*\.[0-9]*\).*/\1/p')
+      plan_time=$(echo -e "$exec_query" | sed -n 's/"Planning Time": \([0-9]*\.[0-9]*\).*/\1/p')
+      query_hash=$(echo -e "$exec_query" | sed -n 's/"Query hash": \([0-9]*\),*/\1/p')
+      echo -e "$filenum,$short_file,$exec_time,$query_hash,$plan_time" >> "${file_name}"
+      cat $file >> job_onepass_result_disabled_plan.dat
+      echo -e "$exec_query" >>  job_onepass_result_disabled_plan.dat
+      filenum=$((filenum+1))
+   done
+   done
+
+# the second running with learned mode
+tmp_install/bin/psql -c "ALTER SYSTEM SET aqo.mode='learn'"
+# setup learn aqo, use aqo, auto_tuning with true value for first two parameters
+tmp_install/bin/psql -c tmp_install/bin/psql -c "select aqo_queries_update(queryid, fs, true, true, false) from aqo_queries"
+tmp_install/bin/pg_ctl -D /home/alena/postgres_data restart
+
+echo "The Join Order Benchmark 1Pass test with learned mode..."
+for (( i=1; i<10; i++ ))
+do
+file_name="learn_folder/${i}_job_onepass_result_learn.csv"
+echo -e "Query Number,Query Name,Execution Time,Query hash,+,Plan time" > "${file_name}"
+for file in $QUERY_DIR/*.sql
+do
+   # Get filename
+   short_file=$(basename "$file")
+   echo -n "EXPLAIN (ANALYZE, FORMAT JSON) " > test.sql
+   cat $file >> test.sql
+   exec_query=$(tmp_install/bin/psql -f test.sql)
+   exec_time=$(echo -e "$exec_query" | sed -n 's/"Execution Time": \([0-9]*\.[0-9]*\).*/\1/p')
+   plan_time=$(echo -e "$exec_query" | sed -n 's/"Planning Time": \([0-9]*\.[0-9]*\).*/\1/p')
+   query_hash=$(echo -e "$exec_query" | sed -n 's/"Query hash": \([0-9]*\),*/\1/p')
+   echo -e "$filenum,$short_file,$exec_time,$query_hash,$plan_time" >> "${file_name}"
+   cat $file >> job_onepass_result_learn_plan.dat
+   echo -e "$exec_query" >>  job_onepass_result_learn_plan.dat
+   filenum=$((filenum+1))
+done
+done
+
+# the third running with controlled mode
+ tmp_install/bin/psql -c "ALTER SYSTEM SET aqo.mode='controlled'"
+# setup learn aqo, use aqo, auto_tuning with true value only for use aqo
+ tmp_install/bin/psql -c tmp_install/bin/psql -c "select aqo_queries_update(queryid, fs, false, true, false) from aqo_queries"
+ tmp_install/bin/pg_ctl -D /home/alena/postgres_data restart
+
+echo "The Join Order Benchmark 1Pass test with controlled mode..."
+
+for (( i=1; i<5; i++ ))
+do
+file_name="control_folder/${i}_job_onepass_result_control1.csv"
+echo -e "Query Number,Query Name,Execution Time,Query hash,+,Plan time" > "${file_name}"
+for file in $QUERY_DIR/*.sql
+do
+   # Get filename
+   short_file=$(basename "$file")
+   echo -n "EXPLAIN (ANALYZE, FORMAT JSON) " > test.sql
+   cat $file >> test.sql
+   exec_query=$(tmp_install/bin/psql -f test.sql)
+   exec_time=$(echo -e "$exec_query" | sed -n 's/"Execution Time": \([0-9]*\.[0-9]*\).*/\1/p')
+   plan_time=$(echo -e "$exec_query" | sed -n 's/"Planning Time": \([0-9]*\.[0-9]*\).*/\1/p')
+   query_hash=$(echo -e "$exec_query" | sed -n 's/"Query hash": \([0-9]*\),*/\1/p')
+   echo -e "$filenum,$short_file,$exec_time,$query_hash,$plan_time" >> "${file_name}"
+   cat $file >> job_onepass_result_control_plan1.dat
+   echo -e "$exec_query" >>  job_onepass_result_control_plan1.dat
+   filenum=$((filenum+1))
+done
+done
+
+tmp_install/bin/psql -c "\copy (select * from aqo_query_stat) to 'aqo_query_stat.csv' DELIMITER ',' CSV HEADER"
+pg_ctl -D $PGDATA stop
