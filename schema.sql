@@ -180,4 +180,13 @@ INTO _tc;
 return _tc;
 END;
 $$
-language 'plpgsql' STRICT;
+language 'plpgsql';
+
+CREATE OR REPLACE FUNCTION random_between(_tc int) 
+RETURNS INT AS
+$$
+BEGIN
+RETURN floor(random()* (_tc-1 + 1) + 1);
+END;
+$$
+language 'plpgsql';

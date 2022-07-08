@@ -15,14 +15,14 @@ BEGIN
 
 	IF (parts = 1)
 	THEN
-		full_path = '/home/alena/postgrespro_new/jo-bench' || '/csv/' || tblname || '.csv';
+		full_path = '/home/alena/parameterized-jo-bench' || '/csv/' || tblname || '.csv';
 		raise NOTICE 'COPY % .', full_path;
 		EXECUTE format('COPY %I FROM ''%s'' WITH (FORMAT csv, NULL '''', DELIMITER '','', QUOTE ''"'', ESCAPE ''\'');', tblname, full_path);
 		-- '
 	ELSE
 		FOR i IN 1..parts
 		LOOP
-			full_path = '/home/alena/postgrespro_new/jo-bench/' || '/csv/' || tblname || '/' || tblname || '_' || i || '.csv';
+			full_path = '/home/alena/parameterized-jo-bench' || '/csv/' || tblname || '/' || tblname || '_' || i || '.csv';
 			raise NOTICE 'COPY % .', full_path;
 			EXECUTE format('COPY %I FROM ''%s'' WITH (FORMAT csv, NULL '''', DELIMITER '','', QUOTE ''"'', ESCAPE ''\'');', tblname, full_path);
 			-- '
