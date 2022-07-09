@@ -31,7 +31,7 @@ ulimit -c unlimited
 
 # Binaries and data dirs
 INSTDIR=`pwd`/tmp_install
-QUERY_DIR=parameterized-jo-bench/queries
+QUERY_DIR=/home/alena/parameterized-jo-bench/queries
 
 export LD_LIBRARY_PATH=$INSTDIR/lib:$LD_LIBRARY_PATH
 export PATH=$INSTDIR/bin:$PATH
@@ -50,16 +50,19 @@ tmp_install/bin/psql -c "SELECT pg_reload_conf();"
 tmp_install/bin/psql -c "VACUUM ANALYZE" # Be firmly confident about a table statistics
 tmp_install/bin/psql -c "ALTER SYSTEM SET aqo.show_details = 'on'"
 tmp_install/bin/psql -c "ALTER SYSTEM SET aqo.force_collect_stat = 'on'"
-tmp_install/bin/psql -c "ALTER SYSTEM SET statement_timeout = 300000" # Five minutes limit per query
+tmp_install/bin/psql -c "ALTER SYSTEM SET statement_timeout = 600000" # Five minutes limit per query
 tmp_install/bin/psql -c "ALTER SYSTEM SET aqo.show_hash = 'on'"
 tmp_install/bin/psql -c "CREATE EXTENSION AQO"
 tmp_install/bin/psql -c "ALTER SYSTEM SET shared_buffers = '1000MB'"
+tmp_install/bin/psql -c "ALTER SYSTEM SET aqo.fss_max_items=5000"
 
 tmp_install/bin/pg_ctl -D /home/alena/postgres_data restart
 
 # delete folders learn, control, disabled to being cleaned
+
 rm -r learn_folder
 mkdir learn_folder
+
 rm -r disabled_folder
 mkdir disabled_folder
 
@@ -67,37 +70,37 @@ rm -r control_folder
 mkdir control_folder
 
 # the first running with disabled mode
-tmp_install/bin/psql -c "ALTER SYSTEM SET aqo.mode='disabled'"
-# setup learn aqo, use aqo, auto_tuning with false value
-tmp_install/bin/psql -c tmp_install/bin/psql -c "select aqo_queries_update(queryid, fs, false, false, false) from aqo_queries"
-tmp_install/bin/pg_ctl -D /home/alena/postgres_data restart
+ tmp_install/bin/psql -c "ALTER SYSTEM SET aqo.mode='disabled'"
+ # setup learn aqo, use aqo, auto_tuning with false value
+ tmp_install/bin/psql -c  "select aqo_queries_update(queryid, fs, false, false, false) from aqo_queries"
+ tmp_install/bin/pg_ctl -D /home/alena/postgres_data restart
 
-echo "The Join Order Benchmark 1Pass test with disabled mode..."
-   for (( i=0; i<15; i++ ))
-   do
-   file_name="disabled_folder/${i}_job_onepass_result_disabled.csv"
-   echo -e "Query Number,Query Name,Execution Time,Query hash,+,Plan time" > "${file_name}"
-   for file in $QUERY_DIR/*.sql
-   do
-      # Get filename
-      short_file=$(basename "$file")
-      echo -n "EXPLAIN (ANALYZE, FORMAT JSON) " > test.sql
-      cat $file >> test.sql
-      exec_query=$(tmp_install/bin/psql -f test.sql)
-      exec_time=$(echo -e "$exec_query" | sed -n 's/"Execution Time": \([0-9]*\.[0-9]*\).*/\1/p')
-      plan_time=$(echo -e "$exec_query" | sed -n 's/"Planning Time": \([0-9]*\.[0-9]*\).*/\1/p')
-      query_hash=$(echo -e "$exec_query" | sed -n 's/"Query hash": \([0-9]*\),*/\1/p')
-      echo -e "$filenum,$short_file,$exec_time,$query_hash,$plan_time" >> "${file_name}"
-      cat $file >> job_onepass_result_disabled_plan.dat
-      echo -e "$exec_query" >>  job_onepass_result_disabled_plan.dat
-      filenum=$((filenum+1))
-   done
-   done
+ echo "The Join Order Benchmark 1Pass test with disabled mode..."
+    for (( i=4; i<15; i++ ))
+    do
+    file_name="disabled_folder/${i}_job_onepass_result_disabled.csv"
+    echo -e "Query Number,Query Name,Execution Time,Query hash,+,Plan time" > "${file_name}"
+    for file in $QUERY_DIR/*.sql
+    do
+#       # Get filename
+       short_file=$(basename "$file")
+       echo -n "EXPLAIN (ANALYZE, FORMAT JSON) " > test.sql
+       cat $file >> test.sql
+       exec_query=$(tmp_install/bin/psql -f test.sql)
+       exec_time=$(echo -e "$exec_query" | sed -n 's/"Execution Time": \([0-9]*\.[0-9]*\).*/\1/p')
+       plan_time=$(echo -e "$exec_query" | sed -n 's/"Planning Time": \([0-9]*\.[0-9]*\).*/\1/p')
+       query_hash=$(echo -e "$exec_query" | sed -n 's/"Query hash": \([0-9]*\),*/\1/p')
+       echo -e "$filenum,$short_file,$exec_time,$query_hash,$plan_time" >> "${file_name}"
+       cat $file >> job_onepass_result_disabled_plan.dat
+       echo -e "$exec_query" >>  job_onepass_result_disabled_plan.dat
+       filenum=$((filenum+1))
+    done
+    done
 
 # the second running with learned mode
 tmp_install/bin/psql -c "ALTER SYSTEM SET aqo.mode='learn'"
 # setup learn aqo, use aqo, auto_tuning with true value for first two parameters
-tmp_install/bin/psql -c tmp_install/bin/psql -c "select aqo_queries_update(queryid, fs, true, true, false) from aqo_queries"
+tmp_install/bin/psql -c "select aqo_queries_update(queryid, fs, true, true, false) from aqo_queries"
 tmp_install/bin/pg_ctl -D /home/alena/postgres_data restart
 
 echo "The Join Order Benchmark 1Pass test with learned mode..."
@@ -125,7 +128,7 @@ done
 # the third running with controlled mode
  tmp_install/bin/psql -c "ALTER SYSTEM SET aqo.mode='controlled'"
 # setup learn aqo, use aqo, auto_tuning with true value only for use aqo
- tmp_install/bin/psql -c tmp_install/bin/psql -c "select aqo_queries_update(queryid, fs, false, true, false) from aqo_queries"
+ tmp_install/bin/psql -c -c "select aqo_queries_update(queryid, fs, false, true, false) from aqo_queries"
  tmp_install/bin/pg_ctl -D /home/alena/postgres_data restart
 
 echo "The Join Order Benchmark 1Pass test with controlled mode..."
